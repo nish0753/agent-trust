@@ -1,33 +1,166 @@
-# Monad Blitz Bangalore Submission Process
+# AgentLinked + TaskHub
+### Decentralized AI Agent Reputation · Monad Blitz Bangalore
 
-1. Visit the `monad-blitz-bangalore` repo (link here) and fork it.
+Two independent apps sharing one Solidity contract on **Monad Testnet** as their only integration point.
 
-![image](https://github.com/user-attachments/assets/ab46b2ea-ee0f-4237-87ef-c33bb1a94749)
+| Piece | Stack | What it does |
+|-------|-------|--------------|
+| **AgentTrust.sol** | Solidity 0.8.20 | On-chain reputation ledger |
+| **TaskHub** | Python + Streamlit + Groq | Runs an AI agent, scores it, writes result on-chain |
+| **AgentLinked** | React + Vite + ethers v6 | LinkedIn-style profile, reads from chain in real-time |
 
-2. Give it your project name, a one-liner description, make sure you are forking `main` branch and click `Create Fork`.
+---
 
-![image](https://github.com/user-attachments/assets/ffdebab7-c340-4e14-bd3c-36905f1016a3)
+## Quick Start
 
-3. In your fork you can make all the changes you want, add code of your project, create branches, add information to `README.md`, you can change anything and everything.
+### Prerequisites
+- Python 3.13+
+- Node 18+
+- Testnet MON (from Monad faucet)
+- Groq API key (free at [console.groq.com](https://console.groq.com))
+- MetaMask connected to Monad Testnet (chain ID 10143)
 
-4. Once you are done with your project and ready for submission, create a pull request.
+---
 
-![image](https://github.com/user-attachments/assets/58aa7140-55db-49db-9361-332449dbe116)
+### Step 1 — Deploy the contract
 
-![image](https://github.com/user-attachments/assets/5c8c61b1-23fd-4177-b06e-e8fca3a61ad4)
+1. Open [Remix IDE](https://remix.ethereum.org)
+2. Paste `contracts/AgentTrust.sol`
+3. Compile with Solidity 0.8.20
+4. Connect MetaMask → Monad Testnet
+5. Deploy `AgentTrust`
+6. **Copy the deployed contract address**
 
-5. Make sure you are create a pull request to the right repo `monad-developers/monad-blitz-bangalore`.
+---
 
-![image](https://github.com/user-attachments/assets/41774ebc-d64c-43de-b3be-7e46d21bcaba)
+### Step 2 — Configure TaskHub
 
-6. Make sure you see “Able to merge”, when creating a pull request then you can click `Create Pull Request`.
+```bash
+cd taskhub
+cp .env.example .env
+```
 
-![image](https://github.com/user-attachments/assets/b52f5e6f-9091-43af-9025-f2c61a7d1205)
+Edit `.env`:
+```
+RPC_URL=https://testnet-rpc.monad.xyz
+PRIVATE_KEY=0x<your-metamask-private-key>
+CONTRACT_ADDRESS=0x<deployed-contract-address>
+GROQ_API_KEY=gsk_<your-key-from-console.groq.com>
+```
 
-7. Give the pull request your project name and a description of the project (describe as much as you can about your project you can even add video demo links) then click `Create pull request`.
+Edit `config.py`:
+```python
+AGENT_ADDRESS = "0x<same-metamask-address-as-private-key>"
+```
 
-![image](https://github.com/user-attachments/assets/9a3cc30a-498f-4d83-9060-adb11f88eff6)
+---
 
-8. Finally verify if you created your pull request correctly by checking the repo on which the pull request is created and the source and destination branch of the pull request!
+### Step 3 — Install Python deps & seed historical data
 
-![image](https://github.com/user-attachments/assets/b16befcd-2c29-4520-aa70-29883306e85c)
+```bash
+cd taskhub
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python seed.py          # registers agent + 3 historical tasks
+```
+
+---
+
+### Step 4 — Run TaskHub
+
+```bash
+source venv/bin/activate
+streamlit run app.py
+# → http://localhost:8501
+```
+
+Click **▶ Run Agent** to:
+1. Stream Groq (Llama 3.3 70B) solution token-by-token
+2. Reveal verifier scores with animation
+3. Commit consensus score to Monad Testnet
+
+---
+
+### Step 5 — Configure AgentLinked
+
+Edit `agentlinked/src/config.js`:
+```js
+export const CONTRACT_ADDRESS = "0x<deployed-contract-address>";
+export const AGENT_ADDRESS    = "0x<agent-wallet-address>";
+```
+
+---
+
+### Step 6 — Run AgentLinked
+
+```bash
+cd agentlinked
+npm install
+npm run dev
+# → http://localhost:5173
+```
+
+The profile updates via HTTP polling + WebSocket — data refreshes automatically when TaskHub commits a task.
+
+---
+
+## Architecture
+
+```
+TaskHub (Streamlit)          AgentLinked (React)
+    │                               │
+    │  finalizeTask()               │  getAgentProfile() (HTTP)
+    │  (web3.py)                    │  ReputationUpdated (WebSocket)
+    └──────────► AgentTrust.sol ◄───┘
+                  (Monad Testnet)
+```
+
+## File Structure
+
+```
+agent-trust/
+├── contracts/AgentTrust.sol
+├── taskhub/
+│   ├── app.py          ← Streamlit UI
+│   ├── agent.py        ← Groq streaming (Llama 3.3 70B)
+│   ├── verifier.py     ← 3 independent AI verifiers (Llama 3.3 70B)
+│   ├── contract.py     ← web3.py tx signing
+│   ├── config.py       ← constants + ABI
+│   ├── seed.py         ← pre-seed historical data
+│   ├── diagnose.py     ← diagnostic tool
+│   └── requirements.txt
+└── agentlinked/
+    └── src/
+        ├── App.jsx                 ← Router
+        ├── main.jsx                ← BrowserRouter wrapper
+        ├── config.js
+        ├── index.css               ← Forge design system tokens
+        ├── pages/
+        │   ├── Landing.jsx         ← Marketing site
+        │   ├── landing.css         ← Scoped landing styles
+        │   └── Dashboard.jsx       ← Main app
+        ├── hooks/useContractEvents.js
+        └── components/
+            ├── AgentCard.jsx
+            ├── SkillsSection.jsx
+            ├── TaskFeed.jsx
+            └── Leaderboard.jsx
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Blockchain | Monad Testnet (EVM, chain ID 10143) |
+| Smart Contract | Solidity 0.8.20 |
+| AI Agent & Verifier | Groq API (Llama 3.3 70B, free tier) |
+| Backend | Python 3.13, web3.py, Streamlit |
+| Frontend | React 19, Vite, React Router, ethers v6 |
+| Design System | "Forge" (Warm obsidian, ember accents, Syne + JetBrains Mono) |
+
+---
+
+Built for Monad Blitz Bangalore Hackathon
